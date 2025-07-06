@@ -18,11 +18,9 @@ def get_job_details(job_url):
         res = requests.get(job_url, headers=headers)
         job_soup = BeautifulSoup(res.text, "html.parser")
 
-        # Description
         desc_tag = job_soup.find("div", class_="text-container")
         description = desc_tag.get_text(strip=True) if desc_tag else "N/A"
 
-        # Skills (usually listed in spans with class round_tabs)
         skill_tags = job_soup.find_all("li")
         skills = [s.get_text(strip=True) for s in skill_tags]
         skills_text = ", ".join(skills) if skills else "N/A"
@@ -33,12 +31,18 @@ def get_job_details(job_url):
         print(f"⚠️ Failed to fetch details from: {job_url}")
         return "N/A", "N/A"
 
+
 # Main scraper
-def scrape_internshala_jobs(pages=10):
+def scrape_internshala_jobs(job_titles, location=None, pages=3):
     all_jobs = []
 
+    # Combine job titles and location into a single keyword string
+    search_keywords = job_titles + ([location] if location else [])
+    raw_keywords = ", ".join(search_keywords)
+    encoded_keywords = raw_keywords.replace(" ", "%20").replace(",", "%2C")
+
     for page in range(1, pages + 1):
-        url = f"https://internshala.com/data-science-jobs/page-{page}/"
+        url = f"https://internshala.com/jobs/keywords-{encoded_keywords}/page-{page}/"
         print(f"🔍 Scraping listing page: {url}")
 
         headers = {
@@ -49,14 +53,18 @@ def scrape_internshala_jobs(pages=10):
             )
         }
 
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, "html.parser")
+        try:
+            response = requests.get(url, headers=headers)
+            soup = BeautifulSoup(response.text, "html.parser")
+        except Exception as e:
+            print("⚠️ Failed to load page:", e)
+            continue
 
         jobs = soup.find_all("div", class_="individual_internship")
 
         for item in jobs:
             try:
-                title_tag = item.find("h3", class_="job-internship-name") 
+                title_tag = item.find("a", class_="job-title-href") 
                 title = title_tag.get_text(strip=True) if title_tag else "N/A"
 
                 company_tag = item.find("p", class_="company-name")
@@ -74,11 +82,9 @@ def scrape_internshala_jobs(pages=10):
                 experience_tag = item.find_all("div", class_="row-1-item")
                 experience = experience_tag[1].get_text(strip=True) if len(experience_tag) > 1 else "N/A"
 
-                # Extract job detail link
                 job_link_tag = item.find("a", class_="job-title-href")
                 job_url = "https://internshala.com" + job_link_tag["href"] if job_link_tag else "N/A"
 
-                # Scrape description and skills
                 description, skills = get_job_details(job_url)
 
                 all_jobs.append({
@@ -92,20 +98,23 @@ def scrape_internshala_jobs(pages=10):
                     "skills": skills,
                     "job_url": job_url,
                     "platform": "Internshala",
-                    "category": "data science"
+                    "keywords_used": raw_keywords
                 })
 
             except Exception as e:
                 print("⚠️ Skipping job due to error:", e)
                 continue
 
-        time.sleep(1)  # be respectful
+        time.sleep(1)
 
     return pd.DataFrame(all_jobs)
 
-# Run the scraper
+
+# Example usage
 if __name__ == "__main__":
     os.makedirs("data/raw", exist_ok=True)
-    df = scrape_internshala_jobs(pages=10)
+    keywords = ["data analyst", "data engineer"]
+    location = "Bangalore"
+    df = scrape_internshala_jobs(job_titles=keywords, location=location, pages=5)
     df.to_csv("data/raw/internshala.csv", index=False)
     print(f"\n✅ Scraped {len(df)} job listings. Saved to data/raw/internshala.csv")
